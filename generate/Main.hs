@@ -8,14 +8,14 @@ import           FFICXX.Generate.Type.PackageInterface
 import Data.FileEmbed
 import qualified Data.ByteString.Char8 as Char8
 
-incs = [AddCInc "MyVector.h" (Char8.unpack $(embedFile "MyVector.h"))]
+incs = [AddCInc "HsKaldiVector.h" (Char8.unpack $(embedFile "HsKaldiVector.h"))]
 
 srcs = [] -- [ AddCSrc "test.cpp" "//test ok??" ]
 
 
-mycabal = Cabal { cabal_pkgname = "hskaldi"
+mycabal = Cabal { cabal_pkgname = "hskaldi-interface"
                 , cabal_cheaderprefix = "hskaldi"
-                , cabal_moduleprefix = "HsKaldi"
+                , cabal_moduleprefix = "HsKaldiInterface"
                 , cabal_additional_c_incs = incs
                 , cabal_additional_c_srcs = srcs
                 }
@@ -24,9 +24,8 @@ mycabalattr =
     CabalAttr 
     { cabalattr_license = Just "BSD3"
     , cabalattr_licensefile = Just "LICENSE"
-    , cabalattr_extraincludedirs = ["kaldi-src", "openfst-src/include"
-                                   ,"atlas-root/include"]
-    , cabalattr_extralibdirs = ["kaldi-src/lib"]
+    , cabalattr_extraincludedirs = [] -- ["kaldi-src", "openfst-src/include" ,"atlas-root/include"]
+    , cabalattr_extralibdirs = [] -- ["kaldi-src/lib"]
     , cabalattr_extrafiles = []
     }
 
@@ -38,9 +37,9 @@ vectorFloat v = (TemplateApp vectorTmpl "CFloat" "kaldi::Vector<float>", v)
 --     , Virtual void_ "Foo" [ vectorFloat "v" ] Nothing
 --     ]
 
-myVector = Class mycabal "MyVector" [] mempty Nothing
+myVector = Class mycabal "HsKaldiVector" [] mempty Nothing
   [Constructor [] Nothing
-  , NonVirtual void_ "MyCopyFromPtr" [cstar (CTDouble) "ptr", int "size" ] Nothing
+  , NonVirtual void_ "HsKaldiVectorCopyFromPtr" [cstar (CTDouble) "ptr", int "size" ] Nothing
   , Destructor Nothing
   ]
 
@@ -67,13 +66,14 @@ templates = [(vectorTmpl, HdrName "hskaldi_vector.h")]
 -- inline int32 GetVerboseLevel() { return g_kaldi_verbose_level; }
 getVerboseLevel = TopLevelFunction (CT CTInt NoConst) "GetVerboseLevel" [] Nothing
 
-headerMap = [("MyVector", ([], [HdrName "MyVector.h"]))]
+headerMap = [("HsKaldiVector", ([], [HdrName "HsKaldiVector.h"]))]
 
 extraDep =  []--[ ("HsKaldi", ["HsKaldi.Vector.Template"]) ]
+extralibs = [] -- ["kaldi-matrix", "kaldi-base" ]
 
 main :: IO ()
 main = do 
-  simpleBuilder "HsKaldi" headerMap
+  simpleBuilder "HsKaldiInterface" headerMap
     (mycabal,mycabalattr,myclasses,toplevelfunctions,
-       templates) ["kaldi-matrix", "kaldi-base" ] extraDep
+       templates) extralibs extraDep
 
