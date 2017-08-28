@@ -12,6 +12,18 @@
 
 using namespace kaldi;
 
+struct DoAsrArgs {
+  OnlineNnet2FeaturePipelineInfo* feature_info;
+  TransitionModel* trans_model;
+  fst::Fst<fst::StdArc> *decode_fst;
+  nnet3::DecodableNnetSimpleLoopedInfo* decodable_info;
+  nnet3::NnetSimpleLoopedComputationOptions* decodable_opts;
+  LatticeFasterDecoderConfig* decoder_opts;
+  fst::SymbolTable *word_syms;
+};
+
+int doAsr(SubVector<BaseFloat>& data, DoAsrArgs& doAsrArgs);
+
 void GetDiagnosticsAndPrintOutput(const std::string &utt,
                                   const fst::SymbolTable *word_syms,
                                   const CompactLattice &clat,
@@ -53,11 +65,10 @@ void GetDiagnosticsAndPrintOutput(const std::string &utt,
   }
 }
 
-int c_main_int(int argc, char *argv[]);
+int c_main_int();
 extern "C" {
   int c_main () {
-    char* args = "";
-    c_main_int(0,&args);
+    c_main_int();
   }
 }
 
@@ -80,58 +91,24 @@ int c_main_int() {
         "The spk2utt-rspecifier can just be <utterance-id> <utterance-id> if\n"
         "you want to decode utterance by utterance.\n";
 
-    ParseOptions po(usage);
-
-    std::string word_syms_rxfilename;
+    std::string word_syms_rxfilename = "exp/tdnn_7b_chain_online/graph_pp/words.txt";
 
     // feature_opts includes configuration for the iVector adaptation,
     // as well as the basic features.
     OnlineNnet2FeaturePipelineConfig feature_opts;
     nnet3::NnetSimpleLoopedComputationOptions decodable_opts;
     LatticeFasterDecoderConfig decoder_opts;
-    OnlineEndpointConfig endpoint_opts;
 
     BaseFloat chunk_length_secs = 0.18;
     bool do_endpointing = false;
-    bool online = true;
-
-    po.Register("chunk-length", &chunk_length_secs,
-                "Length of chunk size in seconds, that we process.  Set to <= 0 "
-                "to use all input in one chunk.");
-    po.Register("word-symbol-table", &word_syms_rxfilename,
-                "Symbol table for words [for debug output]");
-    po.Register("do-endpointing", &do_endpointing,
-                "If true, apply endpoint detection");
-    po.Register("online", &online,
-                "You can set this to false to disable online iVector estimation "
-                "and have all the data for each utterance used, even at "
-                "utterance start.  This is useful where you just want the best "
-                "results and don't care about online operation.  Setting this to "
-                "false has the same effect as setting "
-                "--use-most-recent-ivector=true and --greedy-ivector-extractor=true "
-                "in the file given to --ivector-extraction-config, and "
-                "--chunk-length=-1.");
-    po.Register("num-threads-startup", &g_num_threads,
-                "Number of threads used when initializing iVector extractor.");
-
-    feature_opts.Register(&po);
-    decodable_opts.Register(&po);
-    decoder_opts.Register(&po);
-    endpoint_opts.Register(&po);
+    bool online = false;
 
 
-    po.Read(argc, argv);
-
-    if (po.NumArgs() != 5) {
-      po.PrintUsage();
-      return 1;
-    }
-
-    std::string nnet3_rxfilename = po.GetArg(1),
-        fst_rxfilename = po.GetArg(2),
-        spk2utt_rspecifier = po.GetArg(3),
-        wav_rspecifier = po.GetArg(4),
-        clat_wspecifier = po.GetArg(5);
+    std::string nnet3_rxfilename = "exp/tdnn_7b_chain_online/final.mdl",
+        fst_rxfilename = "exp/tdnn_7b_chain_online/graph_pp/HCLG.fst",
+        spk2utt_rspecifier = "ark:echo utterance-id1 utterance-id1|",
+        wav_rspecifier = "scp:echo utterance-id1 ~/lenovo/try.wav|",
+        clat_wspecifier = "ark:/dev/null";
 
     OnlineNnet2FeaturePipelineInfo feature_info(feature_opts);
 
@@ -175,18 +152,33 @@ int c_main_int() {
 
     SequentialTokenVectorReader spk2utt_reader(spk2utt_rspecifier);
     RandomAccessTableReader<WaveHolder> wav_reader(wav_rspecifier);
-    CompactLatticeWriter clat_writer(clat_wspecifier);
-
     OnlineTimingStats timing_stats;
 
+    float dataPtr = 12.1231;
+    SubVector<float> data(&dataPtr,1);
+
+    MfccOptions mfccOptions;
+    mfccOptions.num_ceps = 40;
+    feature_info.mfcc_opts = mfccOptions;
+
+    DoAsrArgs doAsrArgs;
+    doAsrArgs.feature_info = &feature_info;
+    doAsrArgs.trans_model = &trans_model;
+    doAsrArgs.decode_fst = decode_fst;
+    doAsrArgs.decodable_opts = &decodable_opts;
+    doAsrArgs.decodable_info = &decodable_info;
+    doAsrArgs.decoder_opts = &decoder_opts;
+    doAsrArgs.word_syms = word_syms;
+
+    return doAsr(data,doAsrArgs);
   } catch(const std::exception& e) {
     std::cerr << e.what();
     return -1;
   }
-} // main()
+} // end
 
 
-void doAsr() {
+int doAsr(SubVector<BaseFloat>& data, DoAsrArgs& doAsrArgs) {
   try {
     using namespace kaldi;
     using namespace fst;
@@ -194,33 +186,21 @@ void doAsr() {
     typedef kaldi::int32 int32;
     typedef kaldi::int64 int64;
 
-
-    SubVector<BaseFloat> data(wave_data.Data(), 0);
-
-    OnlineNnet2FeaturePipeline feature_pipeline(feature_info);
-    feature_pipeline.SetAdaptationState(adaptation_state);
+    OnlineNnet2FeaturePipeline feature_pipeline(*(doAsrArgs.feature_info));
 
     OnlineSilenceWeighting silence_weighting(
-                                             trans_model,
-                                             feature_info.silence_weighting_config,
-                                             decodable_opts.frame_subsampling_factor);
+                                             *(doAsrArgs.trans_model),
+                                             (*(doAsrArgs.feature_info)).silence_weighting_config,
+                                             (*(doAsrArgs.decodable_opts)).frame_subsampling_factor);
 
-    SingleUtteranceNnet3Decoder decoder(decoder_opts, trans_model,
-                                        decodable_info,
-                                        *decode_fst, &feature_pipeline);
-    OnlineTimer decoding_timer(utt);
-
-    BaseFloat samp_freq = wave_data.SampFreq();
-    int32 chunk_length;
-    if (chunk_length_secs > 0) {
-      chunk_length = int32(samp_freq * chunk_length_secs);
-      if (chunk_length == 0) chunk_length = 1;
-    } else {
-      chunk_length = std::numeric_limits<int32>::max();
-    }
-
+    SingleUtteranceNnet3Decoder decoder(*(doAsrArgs.decoder_opts),
+                                        *(doAsrArgs.trans_model),
+                                        (*(doAsrArgs.decodable_info)),
+                                        *(doAsrArgs.decode_fst), &feature_pipeline);
+    int32 chunk_length = 50;
     int32 samp_offset = 0;
-    std::vector<std::pair<int32, BaseFloat> > delta_weights;
+    int32 samp_freq = 16000;
+
 
     while (samp_offset < data.Dim()) {
       int32 samp_remaining = data.Dim() - samp_offset;
@@ -231,24 +211,12 @@ void doAsr() {
       feature_pipeline.AcceptWaveform(samp_freq, wave_part);
 
       samp_offset += num_samp;
-      decoding_timer.WaitUntil(samp_offset / samp_freq);
       if (samp_offset == data.Dim()) {
         // no more input. flush out last frames
         feature_pipeline.InputFinished();
       }
 
-      if (silence_weighting.Active() &&
-          feature_pipeline.IvectorFeature() != NULL) {
-        silence_weighting.ComputeCurrentTraceback(decoder.Decoder());
-        silence_weighting.GetDeltaWeights(feature_pipeline.NumFramesReady(),
-                                          &delta_weights);
-        feature_pipeline.IvectorFeature()->UpdateFrameWeights(delta_weights);
-      }
-
       decoder.AdvanceDecoding();
-
-      if (do_endpointing && decoder.EndpointDetected(endpoint_opts))
-        break;
     }
     decoder.FinalizeDecoding();
 
@@ -256,32 +224,22 @@ void doAsr() {
     bool end_of_utterance = true;
     decoder.GetLattice(end_of_utterance, &clat);
 
-    GetDiagnosticsAndPrintOutput(utt, word_syms, clat,
+    int64 num_frames = 2;
+    double tot_like = 2;
+    std::string utt = "UtteranceName";
+    GetDiagnosticsAndPrintOutput(utt, doAsrArgs.word_syms, clat,
                                  &num_frames, &tot_like);
-
-    decoding_timer.OutputStats(&timing_stats);
-
-    // In an application you might avoid updating the adaptation state if
-    // you felt the utterance had low confidence.  See lat/confidence.h
-    feature_pipeline.GetAdaptationState(&adaptation_state);
 
     // we want to output the lattice with un-scaled acoustics.
     BaseFloat inv_acoustic_scale =
-      1.0 / decodable_opts.acoustic_scale;
+      1.0 / (*(doAsrArgs.decodable_opts)).acoustic_scale;
     ScaleLattice(AcousticLatticeScale(inv_acoustic_scale), &clat);
 
-    clat_writer.Write(utt, clat);
     KALDI_LOG << "Decoded utterance " << utt;
-    num_done++;
-    timing_stats.Print(online);
 
-    KALDI_LOG << "Decoded " << num_done << " utterances, "
-              << num_err << " with errors.";
-    KALDI_LOG << "Overall likelihood per frame was " << (tot_like / num_frames)
-              << " per frame over " << num_frames << " frames.";
-    delete decode_fst;
-    delete word_syms; // will delete if non-NULL.
-    return (num_done != 0 ? 0 : 1);
+    //delete decode_fst;
+    //delete word_syms; // will delete if non-NULL.
+    return 1;
   } catch(const std::exception& e) {
     std::cerr << e.what();
     return -1;
