@@ -16,18 +16,18 @@ foreign import ccall unsafe "c_main_wrap"
                c_main_wrap :: Int -> Ptr Int16 -> IO ()
 
 foreign import ccall unsafe "c_doAsr"
-               c_doAsr :: Ptr DoAsrArgs -> Int -> Ptr Int32 -> IO ()
+               c_doAsr :: Ptr DoAsrArgs -> Int -> Ptr Int16 -> IO ()
 
 data DoAsrArgs = DoAsrArgs
 
 main :: IO ()
 main = do
   putStrLn "Hello, Haskell!"
-  -- doAsrArgsPtr <- c_init_kaldi
-  inMain "try.wav"
+  doAsrArgsPtr <- c_init_kaldi
+  inMain doAsrArgsPtr "try.wav"
 
 -- inMain :: FilePath -> IO ()
-inMain path = do
+inMain doAsrArgsPtr path = do
   maybeAudio <- importFile path
   case maybeAudio :: Either String (Audio Int16) of
     Left s -> putStrLn $ "wav decoding error: " ++ s
@@ -35,7 +35,7 @@ inMain path = do
       putStrLn $ "rate = " ++ show rate
       putStrLn $ "channels: " ++ show channels
       print (take 100 (elems samples))
-      withArrayLen (elems samples :: [Int16]) c_main_wrap
+      withArrayLen (elems samples :: [Int16]) (c_doAsr doAsrArgsPtr)
       -- unsafeUseAsCStringLen
 
 -- withArrayLen :: Storable a => [a] -> (Int -> Ptr a -> IO b) -> IO b 

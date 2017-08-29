@@ -23,7 +23,7 @@ struct DoAsrArgs {
 };
 
 extern "C"{
-  void c_doAsr(void* argsPtr, int len, int32* dataPtr);
+  void c_doAsr(void* argsPtr, int len, int16* dataPtr);
 }
 
 void GetDiagnosticsAndPrintOutput(const std::string &utt,
@@ -152,7 +152,7 @@ void* init_kaldi() {
 } // end
 
 
-void c_doAsr(void* argsPtr, int len, int32* dataPtr) {
+void c_doAsr(void* argsPtr, int len, int16* dataPtr) {
   DoAsrArgs doAsrArgs = *((DoAsrArgs*) argsPtr);
 
   // std::cout<< "Size=" << sizeof(float);
