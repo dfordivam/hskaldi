@@ -74,9 +74,9 @@ void GetDiagnosticsAndPrintOutput(const std::string &utt,
 
 }
 
-int c_main(int argc, char *argv[]);
+int c_main(int argc, char *argv[], int len, int32* dataPtr);
 extern "C" {
-  int c_main_wrap()  {
+  int c_main_wrap(int len, int32* dataPtr)  {
     char* argv[] = {
       "--online=false"
       ,"--do-endpointing=false"
@@ -94,17 +94,25 @@ extern "C" {
       , NULL
     };
     int argc = sizeof(argv) / sizeof(char*) - 1;
-    c_main(argc,argv);
+    c_main(argc,argv, len, dataPtr);
   }
 }
 
-int c_main(int argc, char *argv[]) {
+int c_main(int argc, char *argv[], int len, int32* dataPtr) {
   try {
     using namespace kaldi;
     using namespace fst;
 
     typedef kaldi::int32 int32;
     typedef kaldi::int64 int64;
+
+    float* dataFloat = new float[len];
+    for (int i = 0; i < len; ++i) {
+      int16 k = *(dataPtr + i);
+      *(dataFloat+i) = k;
+    }
+
+    SubVector<float> data(dataFloat,len);
 
     const char *usage =
         "Reads in wav file(s) and simulates online decoding with neural nets\n"
@@ -230,7 +238,7 @@ int c_main(int argc, char *argv[]) {
         const WaveData &wave_data = wav_reader.Value(utt);
         // get the data for channel zero (if the signal is not mono, we only
         // take the first channel).
-        SubVector<BaseFloat> data(wave_data.Data(), 0);
+        // SubVector<BaseFloat> data(wave_data.Data(), 0);
 
         OnlineNnet2FeaturePipeline feature_pipeline(feature_info);
         feature_pipeline.SetAdaptationState(adaptation_state);
