@@ -22,7 +22,9 @@ struct DoAsrArgs {
   fst::SymbolTable *word_syms;
 };
 
-int doAsr(SubVector<BaseFloat>& data, DoAsrArgs& doAsrArgs);
+extern "C"{
+  void c_doAsr(void* argsPtr, int len, int32* dataPtr);
+}
 
 void GetDiagnosticsAndPrintOutput(const std::string &utt,
                                   const fst::SymbolTable *word_syms,
@@ -65,14 +67,14 @@ void GetDiagnosticsAndPrintOutput(const std::string &utt,
   }
 }
 
-int c_main_int();
+void* init_kaldi();
 extern "C" {
-  int c_main () {
-    c_main_int();
+  void* c_init_kaldi () {
+    void* ptr = init_kaldi();
   }
 }
 
-int c_main_int() {
+void* init_kaldi() {
   try {
     using namespace kaldi;
     using namespace fst;
@@ -95,9 +97,7 @@ int c_main_int() {
 
     // feature_opts includes configuration for the iVector adaptation,
     // as well as the basic features.
-    OnlineNnet2FeaturePipelineConfig feature_opts;
     nnet3::NnetSimpleLoopedComputationOptions decodable_opts;
-    LatticeFasterDecoderConfig decoder_opts;
 
     BaseFloat chunk_length_secs = 0.18;
     bool do_endpointing = false;
@@ -110,20 +110,13 @@ int c_main_int() {
         wav_rspecifier = "scp:echo utterance-id1 ~/lenovo/try.wav|",
         clat_wspecifier = "ark:/dev/null";
 
-    OnlineNnet2FeaturePipelineInfo feature_info(feature_opts);
 
-    if (!online) {
-      feature_info.ivector_extractor_info.use_most_recent_ivector = true;
-      feature_info.ivector_extractor_info.greedy_ivector_extractor = true;
-      chunk_length_secs = -1.0;
-    }
-
-    TransitionModel trans_model;
+    TransitionModel* trans_model = new TransitionModel;
     nnet3::AmNnetSimple am_nnet;
     {
       bool binary;
       Input ki(nnet3_rxfilename, &binary);
-      trans_model.Read(ki.Stream(), binary);
+      trans_model->Read(ki.Stream(), binary);
       am_nnet.Read(ki.Stream(), binary);
       SetBatchnormTestMode(true, &(am_nnet.GetNnet()));
       SetDropoutTestMode(true, &(am_nnet.GetNnet()));
@@ -134,7 +127,8 @@ int c_main_int() {
     // this object contains precomputed stuff that is used by all decodable
     // objects.  It takes a pointer to am_nnet because if it has iVectors it has
     // to modify the nnet to accept iVectors at intervals.
-    nnet3::DecodableNnetSimpleLoopedInfo decodable_info(decodable_opts,
+    nnet3::DecodableNnetSimpleLoopedInfo* decodable_info =
+      new nnet3::DecodableNnetSimpleLoopedInfo(decodable_opts,
                                                         &am_nnet);
 
 
@@ -154,31 +148,54 @@ int c_main_int() {
     RandomAccessTableReader<WaveHolder> wav_reader(wav_rspecifier);
     OnlineTimingStats timing_stats;
 
-    float dataPtr = 12.1231;
-    SubVector<float> data(&dataPtr,1);
+    DoAsrArgs* doAsrArgs = new DoAsrArgs;
 
-    MfccOptions mfccOptions;
-    mfccOptions.num_ceps = 40;
-    feature_info.mfcc_opts = mfccOptions;
+    (*doAsrArgs).trans_model = trans_model;
+    (*doAsrArgs).decode_fst = decode_fst;
+    (*doAsrArgs).decodable_info = decodable_info;
+    (*doAsrArgs).word_syms = word_syms;
 
-    DoAsrArgs doAsrArgs;
-    doAsrArgs.feature_info = &feature_info;
-    doAsrArgs.trans_model = &trans_model;
-    doAsrArgs.decode_fst = decode_fst;
-    doAsrArgs.decodable_opts = &decodable_opts;
-    doAsrArgs.decodable_info = &decodable_info;
-    doAsrArgs.decoder_opts = &decoder_opts;
-    doAsrArgs.word_syms = word_syms;
-
-    return doAsr(data,doAsrArgs);
+    return ((void*) (doAsrArgs));
   } catch(const std::exception& e) {
     std::cerr << e.what();
-    return -1;
+    return NULL;
   }
 } // end
 
 
-int doAsr(SubVector<BaseFloat>& data, DoAsrArgs& doAsrArgs) {
+void c_doAsr(void* argsPtr, int len, int32* dataPtr) {
+  DoAsrArgs doAsrArgs = *((DoAsrArgs*) argsPtr);
+  SubVector<float> data((float*)dataPtr,len);
+
+  nnet3::NnetSimpleLoopedComputationOptions decodable_opts;
+  OnlineNnet2FeaturePipelineConfig feature_opts;
+  OnlineNnet2FeaturePipelineInfo feature_info(feature_opts);
+  LatticeFasterDecoderConfig decoder_opts;
+
+  FrameExtractionOptions frameExtOpts;
+  frameExtOpts.samp_freq = 8000;
+
+  MelBanksOptions melBankOpts;
+  melBankOpts.num_bins = 40;
+  melBankOpts.low_freq = 40;
+  melBankOpts.high_freq = -200;
+
+
+  MfccOptions mfccOptions;
+  mfccOptions.num_ceps = 40;
+  mfccOptions.use_energy = false;
+
+  mfccOptions.mel_opts = melBankOpts;
+  mfccOptions.frame_opts = frameExtOpts;
+
+  feature_info.mfcc_opts = mfccOptions;
+  feature_info.feature_type = "mfcc";
+
+  doAsrArgs.feature_info = &feature_info;
+  doAsrArgs.decodable_opts = &decodable_opts;
+  doAsrArgs.decoder_opts = &decoder_opts;
+
+  std::cout << "Feature-Type=" << (*(doAsrArgs.feature_info)).feature_type;
   try {
     using namespace kaldi;
     using namespace fst;
@@ -197,7 +214,7 @@ int doAsr(SubVector<BaseFloat>& data, DoAsrArgs& doAsrArgs) {
                                         *(doAsrArgs.trans_model),
                                         (*(doAsrArgs.decodable_info)),
                                         *(doAsrArgs.decode_fst), &feature_pipeline);
-    int32 chunk_length = 50;
+    int32 chunk_length = 1;
     int32 samp_offset = 0;
     int32 samp_freq = 16000;
 
@@ -239,10 +256,10 @@ int doAsr(SubVector<BaseFloat>& data, DoAsrArgs& doAsrArgs) {
 
     //delete decode_fst;
     //delete word_syms; // will delete if non-NULL.
-    return 1;
+    return;
   } catch(const std::exception& e) {
     std::cerr << e.what();
-    return -1;
+    return;
   }
 } // main()
 
