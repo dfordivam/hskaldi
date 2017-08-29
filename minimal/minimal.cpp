@@ -294,8 +294,11 @@ void c_doAsr(void* argsPtr, int len, int16* dataPtr) {
  -lkaldi-ivector  -lkaldi-nnet3  -lkaldi-chain  -lkaldi-nnet2  -lkaldi-cudamatrix  -lkaldi-decoder  -lkaldi-lat  -lkaldi-fstext \
  -lkaldi-hmm  -lkaldi-feat  -lkaldi-transform  -lkaldi-gmm  -lkaldi-tree  -lkaldi-util  -lkaldi-matrix  -lkaldi-base -lfst /nix/store/xr7ylbmlskkjcbscj00qxz4y9119rrc5-atlas-3.10.2/lib/liblapack_atlas.a /nix/store/xr7ylbmlskkjcbscj00qxz4y9119rrc5-atlas-3.10.2/lib/libcblas.a /nix/store/xr7ylbmlskkjcbscj00qxz4y9119rrc5-atlas-3.10.2/lib/libatlas.a /nix/store/xr7ylbmlskkjcbscj00qxz4y9119rrc5-atlas-3.10.2/lib/libf77blas.a -lm -lpthread -ldl -lcublas -lcudart -lcurand  -o minimal-exe
 
+g++ -std=c++11 -c -o minimal.o -DHAVE_ATLAS -I/nix/store/5qri2g3kw6zl94dl5c27qkal0fcjh0xz-kaldi-5.2.5/include -I/nix/store/8mh4r08nziknq31xk42gkgy2sx5n5yjv-openfst-1.6.3/include -I/nix/store/xr7ylbmlskkjcbscj00qxz4y9119rrc5-atlas-3.10.2/include minimal.cpp
 
- g++ -std=c++11 -c -o minimal.o -DHAVE_ATLAS -I/nix/store/5qri2g3kw6zl94dl5c27qkal0fcjh0xz-kaldi-5.2.5/include -I/nix/store/8mh4r08nziknq31xk42gkgy2sx5n5yjv-openfst-1.6.3/include -I/nix/store/xr7ylbmlskkjcbscj00qxz4y9119rrc5-atlas-3.10.2/include minimal.cpp |& head
+g++  -g -std=c++11 -c -o online.o -DHAVE_ATLAS -I/nix/store/5qri2g3kw6zl94dl5c27qkal0fcjh0xz-kaldi-5.2.5/include -I/nix/store/8mh4r08nziknq31xk42gkgy2sx5n5yjv-openfst-1.6.3/include -I/nix/store/xr7ylbmlskkjcbscj00qxz4y9119rrc5-atlas-3.10.2/include online2-wav-nnet3-latgen-faster.cc
+
+ghc -dynamic minimal.o online.o Main.hs -lkaldi-hmm -lkaldi-online2 -lkaldi-lat -lkaldi-util -lkaldi-kws -lkaldi-decoder -lkaldi-gmm -lkaldi-transform -lkaldi-chain -lkaldi-nnet2 -lkaldi-nnet -lkaldi-sgmm2 -lkaldi-cudamatrix -lkaldi-base -lkaldi-fstext -lkaldi-lm -lkaldi-nnet3 -lkaldi-ivector -lkaldi-matrix -lkaldi-feat -lkaldi-tree
 
  ghc -dynamic minimal.o Main.hs\
  -lkaldi-hmm\
