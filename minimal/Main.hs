@@ -12,6 +12,9 @@ import Foreign.C.Types
 foreign import ccall unsafe "c_init_kaldi"
                c_init_kaldi :: IO (Ptr DoAsrArgs)
 
+foreign import ccall unsafe "c_main_wrap"
+               c_main_wrap :: IO ()
+
 foreign import ccall unsafe "c_doAsr"
                c_doAsr :: Ptr DoAsrArgs -> Int -> Ptr Int32 -> IO ()
 
@@ -20,8 +23,9 @@ data DoAsrArgs = DoAsrArgs
 main :: IO ()
 main = do
   putStrLn "Hello, Haskell!"
-  doAsrArgsPtr <- c_init_kaldi
-  inMain doAsrArgsPtr "try.wav"
+  c_main_wrap
+  -- doAsrArgsPtr <- c_init_kaldi
+  -- inMain doAsrArgsPtr "try.wav"
 
 -- inMain :: FilePath -> IO ()
 inMain doAsrArgsPtr path = do
@@ -31,6 +35,7 @@ inMain doAsrArgsPtr path = do
     Right (Audio rate channels samples) -> do
       putStrLn $ "rate = " ++ show rate
       putStrLn $ "channels: " ++ show channels
+      print (take 100 (elems samples))
       withArrayLen (elems samples :: [Int32]) (c_doAsr doAsrArgsPtr)
       -- unsafeUseAsCStringLen
 

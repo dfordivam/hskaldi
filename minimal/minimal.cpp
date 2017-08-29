@@ -31,8 +31,10 @@ void GetDiagnosticsAndPrintOutput(const std::string &utt,
                                   const CompactLattice &clat,
                                   int64 *tot_num_frames,
                                   double *tot_like) {
+  std::cout << "Diag start";
   if (clat.NumStates() == 0) {
     KALDI_WARN << "Empty lattice.";
+    std::cout << "Early exit";
     return;
   }
   CompactLattice best_path_clat;
@@ -55,15 +57,21 @@ void GetDiagnosticsAndPrintOutput(const std::string &utt,
                 << (likelihood / num_frames) << " over " << num_frames
                 << " frames.";
 
+  std::cout << std::endl;
   if (word_syms != NULL) {
     std::cerr << utt << ' ';
     for (size_t i = 0; i < words.size(); i++) {
       std::string s = word_syms->Find(words[i]);
       if (s == "")
         KALDI_ERR << "Word-id " << words[i] << " not in symbol table.";
-      std::cerr << s << ' ';
+      std::cout  << "EntryStart (" << words[i] << ")=" ;
+      std::cout << s << ' ';
+      std::cout  << " EntryEnd";
+      std::cout << std::endl;
     }
-    std::cerr << std::endl;
+    std::cout << std::endl;
+  } else {
+    std::cout  << "Word SYm null";
   }
 }
 
@@ -82,22 +90,13 @@ void* init_kaldi() {
     typedef kaldi::int32 int32;
     typedef kaldi::int64 int64;
 
-    const char *usage =
-        "Reads in wav file(s) and simulates online decoding with neural nets\n"
-        "(nnet3 setup), with optional iVector-based speaker adaptation and\n"
-        "optional endpointing.  Note: some configuration values and inputs are\n"
-        "set via config files whose filenames are passed as options\n"
-        "\n"
-        "Usage: online2-wav-nnet3-latgen-faster [options] <nnet3-in> <fst-in> "
-        "<spk2utt-rspecifier> <wav-rspecifier> <lattice-wspecifier>\n"
-        "The spk2utt-rspecifier can just be <utterance-id> <utterance-id> if\n"
-        "you want to decode utterance by utterance.\n";
-
     std::string word_syms_rxfilename = "exp/tdnn_7b_chain_online/graph_pp/words.txt";
 
     // feature_opts includes configuration for the iVector adaptation,
     // as well as the basic features.
-    nnet3::NnetSimpleLoopedComputationOptions decodable_opts;
+    nnet3::NnetSimpleLoopedComputationOptions *decodable_opts = new nnet3::NnetSimpleLoopedComputationOptions;
+    (*decodable_opts).frame_subsampling_factor = 3;
+    (*decodable_opts).acoustic_scale = 1.0;
 
     BaseFloat chunk_length_secs = 0.18;
     bool do_endpointing = false;
@@ -105,21 +104,18 @@ void* init_kaldi() {
 
 
     std::string nnet3_rxfilename = "exp/tdnn_7b_chain_online/final.mdl",
-        fst_rxfilename = "exp/tdnn_7b_chain_online/graph_pp/HCLG.fst",
-        spk2utt_rspecifier = "ark:echo utterance-id1 utterance-id1|",
-        wav_rspecifier = "scp:echo utterance-id1 ~/lenovo/try.wav|",
-        clat_wspecifier = "ark:/dev/null";
+      fst_rxfilename = "exp/tdnn_7b_chain_online/graph_pp/HCLG.fst";
 
 
     TransitionModel* trans_model = new TransitionModel;
-    nnet3::AmNnetSimple am_nnet;
+    nnet3::AmNnetSimple* am_nnet = new nnet3::AmNnetSimple;
     {
       bool binary;
       Input ki(nnet3_rxfilename, &binary);
       trans_model->Read(ki.Stream(), binary);
-      am_nnet.Read(ki.Stream(), binary);
-      SetBatchnormTestMode(true, &(am_nnet.GetNnet()));
-      SetDropoutTestMode(true, &(am_nnet.GetNnet()));
+      (*am_nnet).Read(ki.Stream(), binary);
+      SetBatchnormTestMode(true, &(am_nnet->GetNnet()));
+      SetDropoutTestMode(true, &(am_nnet->GetNnet()));
       // DIVAM
       //nnet3::CollapseModel(nnet3::CollapseModelConfig(), &(am_nnet.GetNnet()));
     }
@@ -128,8 +124,8 @@ void* init_kaldi() {
     // objects.  It takes a pointer to am_nnet because if it has iVectors it has
     // to modify the nnet to accept iVectors at intervals.
     nnet3::DecodableNnetSimpleLoopedInfo* decodable_info =
-      new nnet3::DecodableNnetSimpleLoopedInfo(decodable_opts,
-                                                        &am_nnet);
+      new nnet3::DecodableNnetSimpleLoopedInfo(*decodable_opts,
+                                                        am_nnet);
 
 
     fst::Fst<fst::StdArc> *decode_fst = fst::ReadFstKaldi(fst_rxfilename);
@@ -140,19 +136,12 @@ void* init_kaldi() {
         KALDI_ERR << "Could not read symbol table from file "
                   << word_syms_rxfilename;
 
-    int32 num_done = 0, num_err = 0;
-    double tot_like = 0.0;
-    int64 num_frames = 0;
-
-    SequentialTokenVectorReader spk2utt_reader(spk2utt_rspecifier);
-    RandomAccessTableReader<WaveHolder> wav_reader(wav_rspecifier);
-    OnlineTimingStats timing_stats;
-
     DoAsrArgs* doAsrArgs = new DoAsrArgs;
 
     (*doAsrArgs).trans_model = trans_model;
     (*doAsrArgs).decode_fst = decode_fst;
     (*doAsrArgs).decodable_info = decodable_info;
+    (*doAsrArgs).decodable_opts = decodable_opts;
     (*doAsrArgs).word_syms = word_syms;
 
     return ((void*) (doAsrArgs));
@@ -165,12 +154,15 @@ void* init_kaldi() {
 
 void c_doAsr(void* argsPtr, int len, int32* dataPtr) {
   DoAsrArgs doAsrArgs = *((DoAsrArgs*) argsPtr);
-  SubVector<float> data((float*)dataPtr,len);
 
-  nnet3::NnetSimpleLoopedComputationOptions decodable_opts;
-  OnlineNnet2FeaturePipelineConfig feature_opts;
-  OnlineNnet2FeaturePipelineInfo feature_info(feature_opts);
-  LatticeFasterDecoderConfig decoder_opts;
+  // std::cout<< "Size=" << sizeof(float);
+  float* dataFloat = new float[len];
+  for (int i = 0; i < len; ++i) {
+    int16 k = *(dataPtr + i);
+    *(dataFloat+i) = k;
+  }
+
+  SubVector<float> data(dataFloat,len);
 
   FrameExtractionOptions frameExtOpts;
   frameExtOpts.samp_freq = 8000;
@@ -188,11 +180,32 @@ void c_doAsr(void* argsPtr, int len, int32* dataPtr) {
   mfccOptions.mel_opts = melBankOpts;
   mfccOptions.frame_opts = frameExtOpts;
 
+  // OnlineIvectorExtractionConfig ivectorConf;
+  // ivectorConf.lda_mat_rxfilename = "exp/tdnn_7b_chain_online/ivector_extractor/final.mat";
+  // ivectorConf.global_cmvn_stats_rxfilename = "exp/tdnn_7b_chain_online/ivector_extractor/global_cmvn.stats";
+  // ivectorConf.splice_config_rxfilename = "exp/tdnn_7b_chain_online/conf/splice.conf";
+  // ivectorConf.cmvn_config_rxfilename = "exp/tdnn_7b_chain_online/conf/online_cmvn.conf";
+  // ivectorConf.ivector_extractor_rxfilename = "exp/tdnn_7b_chain_online/ivector_extractor/final.ie";
+
+  // OnlineIvectorExtractionInfo ivectorExtractorInfo(ivectorConf);
+  // ivectorExtractorInfo.num_gselect = 5;
+  // ivectorExtractorInfo.min_post = 0.025;
+  // ivectorExtractorInfo.posterior_scale = 0.1;
+  // ivectorExtractorInfo.max_remembered_frames = 1000;
+  // ivectorExtractorInfo.max_count = 100;
+
+  OnlineNnet2FeaturePipelineConfig feature_opts;
+  feature_opts.ivector_extraction_config = "exp/tdnn_7b_chain_online/conf/ivector_extractor.conf";
+  OnlineNnet2FeaturePipelineInfo feature_info(feature_opts);
+
   feature_info.mfcc_opts = mfccOptions;
   feature_info.feature_type = "mfcc";
 
+  LatticeFasterDecoderConfig decoder_opts;
+  decoder_opts.lattice_beam = 6.0;
+  decoder_opts.max_active = 7000;
+
   doAsrArgs.feature_info = &feature_info;
-  doAsrArgs.decodable_opts = &decodable_opts;
   doAsrArgs.decoder_opts = &decoder_opts;
 
   std::cout << "Feature-Type=" << (*(doAsrArgs.feature_info)).feature_type;
@@ -214,27 +227,30 @@ void c_doAsr(void* argsPtr, int len, int32* dataPtr) {
                                         *(doAsrArgs.trans_model),
                                         (*(doAsrArgs.decodable_info)),
                                         *(doAsrArgs.decode_fst), &feature_pipeline);
-    int32 chunk_length = 1;
-    int32 samp_offset = 0;
-    int32 samp_freq = 16000;
+    // int32 chunk_length = 1;
+    // int32 samp_offset = 0;
+    int32 samp_freq = 8000;
 
 
-    while (samp_offset < data.Dim()) {
-      int32 samp_remaining = data.Dim() - samp_offset;
-      int32 num_samp = chunk_length < samp_remaining ? chunk_length
-                                      : samp_remaining;
+    // while (samp_offset < data.Dim()) {
+    //   int32 samp_remaining = data.Dim() - samp_offset;
+    //   int32 num_samp = chunk_length < samp_remaining ? chunk_length
+    //                                   : samp_remaining;
 
-      SubVector<BaseFloat> wave_part(data, samp_offset, num_samp);
-      feature_pipeline.AcceptWaveform(samp_freq, wave_part);
+    //   // SubVector<BaseFloat> wave_part(data, samp_offset, num_samp);
+    //   feature_pipeline.AcceptWaveform(samp_freq, data);
 
-      samp_offset += num_samp;
-      if (samp_offset == data.Dim()) {
-        // no more input. flush out last frames
-        feature_pipeline.InputFinished();
-      }
+    //   samp_offset += num_samp;
+    //   if (samp_offset == data.Dim()) {
+    //     // no more input. flush out last frames
+    //     feature_pipeline.InputFinished();
+    //   }
 
-      decoder.AdvanceDecoding();
-    }
+    //   decoder.AdvanceDecoding();
+    // }
+    feature_pipeline.AcceptWaveform(samp_freq, data);
+    decoder.AdvanceDecoding();
+    feature_pipeline.InputFinished();
     decoder.FinalizeDecoding();
 
     CompactLattice clat;
