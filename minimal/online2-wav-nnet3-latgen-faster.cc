@@ -74,9 +74,9 @@ void GetDiagnosticsAndPrintOutput(const std::string &utt,
 
 }
 
-int c_main(int argc, char *argv[], int len, int32* dataPtr);
+int c_main(int argc, char *argv[], int len, int16* dataPtr);
 extern "C" {
-  int c_main_wrap(int len, int32* dataPtr)  {
+  int c_main_wrap(int len, int16* dataPtr)  {
     char* argv[] = {
       "--online=false"
       ,"--do-endpointing=false"
@@ -98,7 +98,7 @@ extern "C" {
   }
 }
 
-int c_main(int argc, char *argv[], int len, int32* dataPtr) {
+int c_main(int argc, char *argv[], int len, int16* dataPtr) {
   try {
     using namespace kaldi;
     using namespace fst;
@@ -107,9 +107,11 @@ int c_main(int argc, char *argv[], int len, int32* dataPtr) {
     typedef kaldi::int64 int64;
 
     float* dataFloat = new float[len];
+    // uint16 *data_ptr = reinterpret_cast<uint16*>(dataPtr);
     for (int i = 0; i < len; ++i) {
-      int16 k = *(dataPtr + i);
-      *(dataFloat+i) = k;
+      int16 k = dataPtr[i];
+      float f = k;
+      *(dataFloat+i) = f;
     }
 
     SubVector<float> data(dataFloat,len);
@@ -238,7 +240,8 @@ int c_main(int argc, char *argv[], int len, int32* dataPtr) {
         const WaveData &wave_data = wav_reader.Value(utt);
         // get the data for channel zero (if the signal is not mono, we only
         // take the first channel).
-        // SubVector<BaseFloat> data(wave_data.Data(), 0);
+        SubVector<BaseFloat> dataOrig(wave_data.Data(), 0);
+        std::cout << "DataOrigSize=" << dataOrig.Dim() << std::endl;
 
         OnlineNnet2FeaturePipeline feature_pipeline(feature_info);
         feature_pipeline.SetAdaptationState(adaptation_state);
@@ -264,6 +267,8 @@ int c_main(int argc, char *argv[], int len, int32* dataPtr) {
 
         int32 samp_offset = 0;
         std::vector<std::pair<int32, BaseFloat> > delta_weights;
+
+        std::cout << "DataSize=" << data.Dim()<< std::endl;
 
         while (samp_offset < data.Dim()) {
           int32 samp_remaining = data.Dim() - samp_offset;
